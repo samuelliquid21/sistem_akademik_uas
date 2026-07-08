@@ -1,0 +1,1434 @@
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>SIAKAD — Deteksi Pelanggaran Akademik</title>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    * {
+      font-family: 'Inter', sans-serif;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+    }
+
+    .sidebar-active {
+      background: #1e3a5f;
+      color: white;
+      box-shadow: 0 4px 12px rgba(30, 58, 95, 0.3);
+    }
+
+    .fade-in {
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              200: '#bfdbfe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a5f'
+            }
+          }
+        }
+      }
+    };
+  </script>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ===================================================================
+    // API CONFIG
+    // ===================================================================
+    const API_BASE = window.location.origin + '/api';
+
+    const api = {
+      post: (endpoint, data) =>
+        fetch(`${API_BASE}/${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        }).then(r => r.json()),
+
+      get: (endpoint) =>
+        fetch(`${API_BASE}/${endpoint}`).then(r => r.json())
+    };
+
+    // ===================================================================
+    // COMPONENTS — UI
+    // ===================================================================
+    const Icon = ({ icon, className = "", size = "1.2em" }) => (
+      <iconify-icon
+        icon={`solar:${icon}`}
+        class={className}
+        style={{ fontSize: size }}
+      ></iconify-icon>
+    );
+
+    const Card = ({ children, className = "", title, action }) => (
+      <div className={`bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden ${className}`}>
+        {(title || action) && (
+          <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+            {title && <h3 className="font-semibold text-slate-800 tracking-tight">{title}</h3>}
+            {action && <div>{action}</div>}
+          </div>
+        )}
+        <div className="p-5">{children}</div>
+      </div>
+    );
+
+    const Badge = ({ children, color = 'slate' }) => {
+      const c = {
+        blue: 'bg-blue-50 text-blue-700 border-blue-100',
+        green: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+        amber: 'bg-amber-50 text-amber-700 border-amber-100',
+        red: 'bg-red-50 text-red-700 border-red-100',
+        slate: 'bg-slate-100 text-slate-700 border-slate-200'
+      };
+
+      return (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${c[color] || c.slate}`}>
+          {children}
+        </span>
+      );
+    };
+
+    const Modal = ({ isOpen, onClose, title, children }) => {
+      if (!isOpen) return null;
+
+      return (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm fade-in"
+          onClick={e => e.target === e.currentTarget && onClose()}
+        >
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="flex justify-between items-center p-5 border-b border-slate-100">
+              <h3 className="font-semibold text-lg text-slate-900">{title}</h3>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+                <Icon icon="close-circle-linear" size="1.5em" />
+              </button>
+            </div>
+            <div className="p-6">{children}</div>
+          </div>
+        </div>
+      );
+    };
+
+    const Toast = ({ message, type = 'success', onClose }) => {
+      React.useEffect(() => {
+        const t = setTimeout(onClose, 3000);
+        return () => clearTimeout(t);
+      }, []);
+
+      const c = {
+        success: 'bg-emerald-500',
+        error: 'bg-red-500',
+        info: 'bg-blue-500'
+      };
+
+      return (
+        <div className={`fixed bottom-4 right-4 z-50 flex items-center gap-3 px-4 py-3 text-white rounded-lg shadow-lg fade-in ${c[type]}`}>
+          <Icon icon={type === 'success' ? 'check-circle-linear' : 'danger-circle-linear'} />
+          <span className="text-sm font-medium">{message}</span>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // HELPERS
+    // ===================================================================
+    const badgeColor = (r) => {
+      if (r.pelanggaran_berat && r.peringatan_akademik) return 'red';
+      if (r.pelanggaran_berat) return 'red';
+      if (r.peringatan_akademik) return 'amber';
+      return 'green';
+    };
+
+    const kelasColor = (k) => {
+      if (k === 'A') return 'blue';
+      if (k === 'B') return 'amber';
+      return 'green';
+    };
+
+    const gejalaColor = (k) => {
+      if (k === 'P') return '#2563eb';
+      if (k === 'S') return '#059669';
+      return '#dc2626';
+    };
+
+    // ===================================================================
+    // PAGES — LOGIN
+    // ===================================================================
+    const Login = ({ onLogin }) => {
+      const [username, setU] = React.useState('');
+      const [password, setP] = React.useState('');
+      const [load, setL] = React.useState(false);
+      const [err, setE] = React.useState('');
+
+      const h = async (e) => {
+        e.preventDefault();
+        setL(true);
+        setE('');
+
+        const r = await api.post('login.php', { username, password });
+
+        if (r.success) {
+          onLogin(r.user);
+        } else {
+          setE(r.error || 'Login gagal');
+        }
+
+        setL(false);
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-br from-primary-900 to-blue-600 skew-y-3 origin-top-left -translate-y-32"></div>
+
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 relative z-10 p-8 fade-in">
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-primary-50 text-primary-900 mb-3">
+                <span className="text-2xl font-bold">S</span>
+              </div>
+              <h1 className="text-2xl font-bold tracking-tight text-primary-900">SIAKAD</h1>
+              <p className="text-xs text-slate-500 mt-1">Sistem Deteksi Pelanggaran Akademik</p>
+            </div>
+
+            <form onSubmit={h} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wide">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={e => setU(e.target.value)}
+                  placeholder="Masukkan username"
+                  required
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wide">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setP(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+
+              {err && (
+                <div className="p-3 rounded-xl bg-red-50 text-red-600 text-sm flex items-center gap-2 border border-red-100">
+                  <Icon icon="danger-circle-linear" />
+                  {err}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={load}
+                className="w-full py-2.5 bg-primary-900 text-white rounded-xl font-medium hover:bg-primary-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {load ? <Icon icon="spinner-linear" className="animate-spin" /> : null}
+                {load ? 'Memproses...' : 'Masuk'}
+              </button>
+            </form>
+
+            <div className="mt-5 p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-400 space-y-1">
+              <p className="font-semibold text-slate-500 mb-1">Akun Demo:</p>
+              <p>
+                <span className="font-medium text-blue-600">admin</span> / <span className="text-red-500">admin</span> — Admin
+              </p>
+              <p>
+                <span className="font-medium text-blue-600">dosen_a</span> / <span className="text-red-500">dosen</span> — Dosen Kelas A
+              </p>
+              <p>
+                <span className="font-medium text-blue-600">dosen_b</span> / <span className="text-red-500">dosen</span> — Dosen Kelas B
+              </p>
+              <p>
+                <span className="font-medium text-blue-600">dosen_c</span> / <span className="text-red-500">dosen</span> — Dosen Kelas C
+              </p>
+              <p>
+                <span className="font-medium text-blue-600">mhs_a1</span> / <span className="text-red-500">mhs11000</span> — Mahasiswa (password: mhs + 5 digit akhir NIM)
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // LAYOUT
+    // ===================================================================
+    const Layout = ({ user, children, view, setView, onLogout }) => {
+      const menuByRole = {
+        admin: [
+          { id: 'dashboard', label: 'Dashboard', icon: 'widget-2-linear' },
+          { id: 'kelas', label: 'Data Kelas', icon: 'blackboard-linear' },
+          { id: 'dosen', label: 'Data Dosen', icon: 'user-id-linear' },
+          { id: 'mahasiswa', label: 'Data Mahasiswa', icon: 'users-group-rounded-linear' },
+          { id: 'rules', label: 'Rule & Tabel', icon: 'notebook-linear' },
+          { id: 'deteksi', label: 'Semua Deteksi', icon: 'clipboard-check-linear' },
+          { id: 'test', label: 'Uji Coba', icon: 'code-linear' },
+        ],
+        dosen: [
+          { id: 'dashboard', label: 'Dashboard', icon: 'widget-2-linear' },
+          { id: 'input', label: 'Input Deteksi', icon: 'pen-new-square-linear' },
+          { id: 'riwayat', label: 'Riwayat Kelas', icon: 'clock-circle-linear' },
+          { id: 'rules', label: 'Rule & Tabel', icon: 'notebook-linear' },
+          { id: 'test', label: 'Uji Coba', icon: 'code-linear' },
+        ],
+        mahasiswa: [
+          { id: 'dashboard', label: 'Dashboard Saya', icon: 'widget-2-linear' },
+          { id: 'riwayat', label: 'Riwayat Saya', icon: 'clock-circle-linear' },
+          { id: 'rules', label: 'Rule & Tabel', icon: 'notebook-linear' },
+        ]
+      };
+
+      const items = menuByRole[user.role] || menuByRole.mahasiswa;
+      const [open, setO] = React.useState(false);
+
+      const roleBadge = {
+        admin: 'bg-red-100 text-red-700',
+        dosen: 'bg-blue-100 text-blue-700',
+        mahasiswa: 'bg-green-100 text-green-700'
+      };
+
+      return (
+        <div className="min-h-screen flex bg-slate-50">
+          {/* SIDEBAR */}
+          <aside
+            className={`
+              fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-slate-200
+              transform transition-transform duration-300 lg:translate-x-0
+              ${open ? 'translate-x-0' : '-translate-x-full'}
+            `}
+          >
+            <div className="h-16 flex items-center px-5 border-b border-slate-100">
+              <div className="w-8 h-8 rounded-lg bg-primary-900 flex items-center justify-center text-white mr-3 font-bold text-sm">
+                S
+              </div>
+              <div>
+                <span className="font-bold text-slate-900 tracking-tight text-sm">SIAKAD</span>
+                <p className="text-xs text-slate-400 -mt-0.5">Deteksi Pelanggaran</p>
+              </div>
+            </div>
+
+            <nav className="p-4 space-y-1">
+              {items.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => { setView(m.id); setO(false); }}
+                  className={`
+                    w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg
+                    transition-all mb-1
+                    ${view === m.id
+                      ? 'sidebar-active'
+                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                    }
+                  `}
+                >
+                  <Icon icon={m.icon} />
+                  {m.label}
+                </button>
+              ))}
+            </nav>
+
+            <div className="absolute bottom-0 w-full p-4 border-t border-slate-100 bg-slate-50/50">
+              <div className="flex items-center gap-3 mb-3 px-2">
+                <div className="w-9 h-9 rounded-full bg-primary-900 flex items-center justify-center text-white text-sm font-bold">
+                  {user.nama.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-900 truncate">{user.nama}</p>
+                  <p className={`
+                    inline-flex px-2 py-0.5 rounded text-xs font-medium
+                    ${roleBadge[user.role] || 'bg-slate-100 text-slate-700'}
+                  `}>
+                    {user.role.toUpperCase()}
+                    {user.nama_kelas ? ` - KELAS ${user.nama_kelas}` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={onLogout}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg"
+              >
+                <Icon icon="logout-2-linear" />
+                Keluar
+              </button>
+            </div>
+          </aside>
+
+          {/* OVERLAY (mobile) */}
+          {open && (
+            <div
+              onClick={() => setO(false)}
+              className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-30 lg:hidden"
+            ></div>
+          )}
+
+          {/* MAIN */}
+          <main className="flex-1 lg:ml-64 flex flex-col min-h-screen">
+            <header className="h-16 bg-white/80 backdrop-blur border-b border-slate-200 sticky top-0 z-30 px-4 sm:px-8 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setO(true)} className="lg:hidden p-2 text-slate-600">
+                  <Icon icon="hamburger-menu-linear" />
+                </button>
+                <h2 className="text-lg font-semibold text-slate-800 tracking-tight">
+                  {(items.find(m => m.id === view) || {}).label || 'Dashboard'}
+                </h2>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-slate-500">
+                <Icon icon="calendar-linear" />
+                {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+              </div>
+            </header>
+
+            <div className="p-4 sm:p-8 flex-1 overflow-auto">
+              {children}
+            </div>
+          </main>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — DASHBOARD ADMIN
+    // ===================================================================
+    const DashboardAdmin = () => {
+      const [s, setS] = React.useState(null);
+      const [r, setR] = React.useState([]);
+
+      React.useEffect(() => {
+        api.get('dashboard.php?role=admin').then(d => {
+          if (d.stats) {
+            setS(d.stats);
+            setR(d.recent || []);
+          }
+        });
+      }, []);
+
+      if (!s) {
+        return (
+          <div className="text-center py-20 text-slate-400">
+            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          </div>
+        );
+      }
+
+      const stats = [
+        { l: 'Total Mahasiswa', v: s.total_mahasiswa, ic: 'users-group-rounded-linear', c: 'text-blue-600', b: 'bg-blue-50' },
+        { l: 'Total Dosen', v: s.total_dosen, ic: 'user-id-linear', c: 'text-emerald-600', b: 'bg-emerald-50' },
+        { l: 'Total Kelas', v: s.total_kelas, ic: 'blackboard-linear', c: 'text-purple-600', b: 'bg-purple-50' },
+        { l: 'Total Deteksi', v: s.total_deteksi, ic: 'clipboard-check-linear', c: 'text-amber-600', b: 'bg-amber-50' },
+      ];
+
+      return (
+        <div className="space-y-6 fade-in">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {stats.map((x, i) => (
+              <Card key={i} className="flex items-center p-4">
+                <div className={`w-12 h-12 rounded-xl ${x.b} ${x.c} flex items-center justify-center mr-4`}>
+                  <Icon icon={x.ic} size="1.5em" />
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs font-medium uppercase tracking-wide">{x.l}</p>
+                  <h4 className="text-2xl font-bold text-slate-800">{x.v}</h4>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          <Card title="Deteksi Terbaru (Semua Kelas)">
+            {r.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <Icon icon="clock-circle-linear" size="3em" className="mb-3 text-slate-300 block mx-auto" />
+                <p>Belum ada deteksi</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-medium">
+                      <th className="px-4 py-3 text-left">Tanggal</th>
+                      <th className="px-4 py-3 text-left">Mahasiswa</th>
+                      <th className="px-4 py-3 text-left">Kelas</th>
+                      <th className="px-4 py-3 text-left">Dosen</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {r.map(d => (
+                      <tr key={d.id} className="hover:bg-slate-50/80">
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                          {(d.created_at || '').substring(0, 16).replace('T', ' ')}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-900">{d.nama_mahasiswa}</td>
+                        <td className="px-4 py-3">
+                          <Badge color={kelasColor(d.nama_kelas)}>{d.nama_kelas}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">{d.nama_dosen}</td>
+                        <td className="px-4 py-3">
+                          <Badge color={badgeColor(d)}>{d.status_label}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — DASHBOARD DOSEN
+    // ===================================================================
+    const DashboardDosen = ({ user }) => {
+      const [s, setS] = React.useState(null);
+      const [r, setR] = React.useState([]);
+
+      React.useEffect(() => {
+        api.get(`dashboard.php?role=dosen&dosen_id=${user.dosen_id}`).then(d => {
+          if (d.stats) {
+            setS(d.stats);
+            setR(d.recent || []);
+          }
+        });
+      }, []);
+
+      if (!s) {
+        return (
+          <div className="text-center py-20 text-slate-400">
+            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          </div>
+        );
+      }
+
+      return (
+        <div className="space-y-6 fade-in">
+          <Card className="bg-gradient-to-br from-primary-900 to-primary-800 text-white border-none">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold">Kelas {user.nama_kelas}</h3>
+                <p className="text-sm opacity-80">Dosen: {user.nama}</p>
+                <p className="text-xs opacity-60">{user.nip} • {user.prodi}</p>
+              </div>
+              <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
+                <span className="text-2xl font-bold">{user.nama_kelas}</span>
+              </div>
+            </div>
+          </Card>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              { l: 'Mahasiswa', v: s.total_mahasiswa, ic: 'users-group-rounded-linear', c: 'text-blue-600', b: 'bg-blue-50' },
+              { l: 'Terdeteksi', v: s.total_deteksi, ic: 'clipboard-check-linear', c: 'text-purple-600', b: 'bg-purple-50' },
+              { l: 'Pelanggaran Berat', v: s.total_berat, ic: 'shield-warning-linear', c: 'text-red-600', b: 'bg-red-50' },
+            ].map((x, i) => (
+              <Card key={i} className="flex items-center p-4">
+                <div className={`w-12 h-12 rounded-xl ${x.b} ${x.c} flex items-center justify-center mr-4`}>
+                  <Icon icon={x.ic} size="1.5em" />
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs font-medium uppercase tracking-wide">{x.l}</p>
+                  <h4 className="text-2xl font-bold text-slate-800">{x.v}</h4>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — DASHBOARD MAHASISWA
+    // ===================================================================
+    const DashboardMahasiswa = ({ user }) => {
+      const [s, setS] = React.useState(null);
+      const [r, setR] = React.useState([]);
+
+      React.useEffect(() => {
+        api.get(`dashboard.php?role=mahasiswa&user_id=${user.id}`).then(d => {
+          if (d.stats) {
+            setS(d.stats);
+            setR(d.recent || []);
+          }
+        });
+      }, []);
+
+      if (!s) {
+        return (
+          <div className="text-center py-20 text-slate-400">
+            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          </div>
+        );
+      }
+
+      return (
+        <div className="space-y-6 fade-in">
+          <Card className="bg-gradient-to-br from-primary-900 to-primary-800 text-white border-none">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold">{user.nama}</h3>
+                <p className="text-sm opacity-80">{user.nim} • Kelas {user.nama_kelas}</p>
+              </div>
+              <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
+                <span className="text-2xl font-bold">{user.nama_kelas}</span>
+              </div>
+            </div>
+          </Card>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[
+              { l: 'Total Deteksi', v: s.total_deteksi, ic: 'clipboard-check-linear', c: 'text-blue-600', b: 'bg-blue-50' },
+              { l: 'Pelanggaran Berat', v: s.total_berat, ic: 'shield-warning-linear', c: 'text-red-600', b: 'bg-red-50' },
+            ].map((x, i) => (
+              <Card key={i} className="flex items-center p-4">
+                <div className={`w-12 h-12 rounded-xl ${x.b} ${x.c} flex items-center justify-center mr-4`}>
+                  <Icon icon={x.ic} size="1.5em" />
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs font-medium uppercase tracking-wide">{x.l}</p>
+                  <h4 className="text-2xl font-bold text-slate-800">{x.v}</h4>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {r.length > 0 && (
+            <Card title="Riwayat Deteksi Saya">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-medium">
+                      <th className="px-4 py-3 text-left">Tanggal</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {r.map(d => (
+                      <tr key={d.id} className="hover:bg-slate-50/80">
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                          {(d.created_at || '').substring(0, 16).replace('T', ' ')}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge color={badgeColor(d)}>{d.status_label}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — DATA KELAS (ADMIN)
+    // ===================================================================
+    const DataKelas = () => {
+      const [data, setData] = React.useState([]);
+
+      React.useEffect(() => {
+        api.get('kelas.php').then(setData);
+      }, []);
+
+      if (!data.length) {
+        return (
+          <div className="text-center py-20 text-slate-400">
+            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          </div>
+        );
+      }
+
+      const cols = {
+        A: 'from-blue-500 to-blue-700',
+        B: 'from-amber-500 to-amber-700',
+        C: 'from-green-500 to-green-700'
+      };
+
+      const badgeC = {
+        A: 'blue',
+        B: 'amber',
+        C: 'green'
+      };
+
+      return (
+        <div className="space-y-6 fade-in">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {data.map(k => (
+              <Card key={k.id} className="overflow-hidden hover:shadow-lg transition-all">
+                <div className={`bg-gradient-to-br ${cols[k.nama_kelas] || 'from-primary-900 to-primary-800'} text-white p-5 -m-5 mb-4`}>
+                  <h3 className="text-xl font-bold">Kelas {k.nama_kelas}</h3>
+                  <p className="text-sm opacity-80">{k.nama_dosen}</p>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Dosen:</span>
+                    <span className="font-medium text-slate-900">{k.nama_user}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">NIP:</span>
+                    <span className="font-medium text-slate-900">{k.nip}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Mahasiswa:</span>
+                    <span className="font-bold text-slate-900">{k.total_mahasiswa} orang</span>
+                  </div>
+                  <div className="pt-2">
+                    <Badge color={badgeC[k.nama_kelas]}>KELAS {k.nama_kelas}</Badge>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — DATA DOSEN (ADMIN)
+    // ===================================================================
+    const DataDosen = () => {
+      const [data, setData] = React.useState([]);
+
+      React.useEffect(() => {
+        api.get('dosen.php').then(setData);
+      }, []);
+
+      if (!data.length) {
+        return (
+          <div className="text-center py-20 text-slate-400">
+            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          </div>
+        );
+      }
+
+      return (
+        <div className="space-y-6 fade-in">
+          <Card title="Data Dosen">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-medium">
+                    <th className="px-4 py-3 text-left">NIP</th>
+                    <th className="px-4 py-3 text-left">Nama</th>
+                    <th className="px-4 py-3 text-left">Prodi</th>
+                    <th className="px-4 py-3 text-left">Username</th>
+                    <th className="px-4 py-3 text-left">Kelas</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.map(d => (
+                    <tr key={d.id} className="hover:bg-slate-50/80">
+                      <td className="px-4 py-3 font-mono text-slate-500">{d.nip}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">{d.nama}</td>
+                      <td className="px-4 py-3 text-slate-500">{d.prodi}</td>
+                      <td className="px-4 py-3 font-mono text-slate-500">{d.username}</td>
+                      <td className="px-4 py-3">
+                        <Badge color={kelasColor(d.nama_kelas)}>{d.nama_kelas || '-'}</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — DATA MAHASISWA (ADMIN)
+    // ===================================================================
+    const DataMahasiswa = () => {
+      const [data, setData] = React.useState([]);
+
+      React.useEffect(() => {
+        api.get('mahasiswa.php?role=admin').then(setData);
+      }, []);
+
+      const cols = {
+        A: 'bg-blue-50 text-blue-700 border-blue-100',
+        B: 'bg-amber-50 text-amber-700 border-amber-100',
+        C: 'bg-green-50 text-green-700 border-green-100'
+      };
+
+      return (
+        <div className="space-y-6 fade-in">
+          <Card
+            title="Data Mahasiswa (30 orang)"
+            action={<span className="text-xs text-slate-400">NIM: 2510511000 - 2510511029</span>}
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-medium">
+                    <th className="px-4 py-3 text-left">NIM</th>
+                    <th className="px-4 py-3 text-left">Nama</th>
+                    <th className="px-4 py-3 text-left">Username</th>
+                    <th className="px-4 py-3 text-left">Kelas</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.map(m => (
+                    <tr key={m.id} className="hover:bg-slate-50/80">
+                      <td className="px-4 py-3 font-mono text-slate-500">{m.nim}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">{m.nama}</td>
+                      <td className="px-4 py-3 font-mono text-slate-500">{m.username}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium border ${cols[m.nama_kelas] || ''}`}>
+                          Kelas {m.nama_kelas}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — RULES & TRUTH TABLE
+    // ===================================================================
+    const RulesPage = () => {
+      const [data, setData] = React.useState(null);
+
+      React.useEffect(() => {
+        api.get('rules.php').then(setData);
+      }, []);
+
+      if (!data) {
+        return (
+          <div className="text-center py-20 text-slate-400">
+            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          </div>
+        );
+      }
+
+      const colorMap = [
+        'bg-blue-50 text-blue-600',
+        'bg-blue-50 text-blue-600',
+        'bg-amber-50 text-amber-600',
+        'bg-green-50 text-green-600'
+      ];
+
+      const badgeMap = [
+        'bg-blue-50 text-blue-700 border-blue-100',
+        'bg-blue-50 text-blue-700 border-blue-100',
+        'bg-amber-50 text-amber-700 border-amber-100',
+        'bg-green-50 text-green-700 border-green-100'
+      ];
+
+      const truthTables = [
+        {
+          t: 'Rule 1: Q → Pelanggaran Berat',
+          h: ['Q', 'Pelanggaran Berat'],
+          r: [['T', 'T'], ['F', 'F']]
+        },
+        {
+          t: 'Rule 2: R → Pelanggaran Berat',
+          h: ['R', 'Pelanggaran Berat'],
+          r: [['T', 'T'], ['F', 'F']]
+        },
+        {
+          t: 'Rule 3: (P ∧ ¬S) → Peringatan Akademik',
+          h: ['P', 'S', '¬S', 'P∧¬S', 'Peringatan'],
+          r: [
+            ['T', 'T', 'F', 'F', 'F'],
+            ['T', 'F', 'T', 'T', 'T'],
+            ['F', 'T', 'F', 'F', 'F'],
+            ['F', 'F', 'T', 'F', 'F']
+          ]
+        },
+        {
+          t: 'Rule 4: (¬Q∧¬R∧¬(P∧¬S)) → Status Aman',
+          h: ['Q', 'R', 'P∧¬S', 'Status Aman'],
+          r: [
+            ['F', 'F', 'F', 'T'],
+            ['F', 'F', 'T', 'F'],
+            ['F', 'T', 'F', 'F'],
+            ['F', 'T', 'T', 'F'],
+            ['T', 'F', 'F', 'F'],
+            ['T', 'F', 'T', 'F'],
+            ['T', 'T', 'F', 'F'],
+            ['T', 'T', 'T', 'F']
+          ]
+        }
+      ];
+
+      return (
+        <div className="space-y-6 fade-in">
+          <Card title="Variabel Proposisi">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-medium">
+                  <th className="px-4 py-3 text-left">Kode</th>
+                  <th className="px-4 py-3 text-left">Proposisi</th>
+                  <th className="px-4 py-3 text-left">Deskripsi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(data.gejala || []).map(g => (
+                  <tr key={g.id} className="hover:bg-slate-50/80">
+                    <td className="px-4 py-3 font-bold" style={{ color: gejalaColor(g.kode) }}>{g.kode}</td>
+                    <td className="px-4 py-3">{g.proposisi}</td>
+                    <td className="px-4 py-3 text-slate-500">{g.deskripsi}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+
+          <Card title="Knowledge Base — Aturan Logika">
+            <div className="space-y-4">
+              {(data.rules || []).map(r => (
+                <div key={r.id} className="border border-slate-200 rounded-xl p-4">
+                  <div className="flex items-start gap-4">
+                    <div className={`
+                      w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm
+                      ${colorMap[r.id - 1] || 'bg-blue-50 text-blue-600'}
+                    `}>
+                      R{r.id}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-semibold text-slate-900">{r.nama_rule}</h4>
+                        <span className={`
+                          px-2 py-0.5 text-xs font-medium border rounded-full
+                          ${badgeMap[r.id - 1] || 'bg-blue-50'}
+                        `}>
+                          {r.ekspresi}
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-500">{r.deskripsi}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card title="Tabel Kebenaran">
+            <div className="space-y-8">
+              {truthTables.map((t, i) => (
+                <div key={i}>
+                  <h4 className="font-semibold text-slate-900 mb-3">{t.t}</h4>
+                  <table className="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-medium">
+                        {t.h.map((h, j) => (
+                          <th key={j} className="px-4 py-3 border-r last:border-r-0">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-center">
+                      {t.r.map((row, j) => (
+                        <tr key={j} className="hover:bg-slate-50/80">
+                          {row.map((v, k) => (
+                            <td
+                              key={k}
+                              className={`
+                                px-4 py-3 border-r last:border-r-0 font-bold
+                                ${v === 'T' ? 'text-green-600' : 'text-red-600'}
+                              `}
+                            >
+                              {v}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — INPUT DETEKSI (DOSEN)
+    // ===================================================================
+    const InputDeteksi = ({ user }) => {
+      const [mhs, setMhs] = React.useState([]);
+      const [form, setForm] = React.useState({ mahasiswa_id: 0, P: 0, Q: 0, R: 0, S: 0 });
+      const [result, setResult] = React.useState(null);
+      const [load, setL] = React.useState(false);
+
+      React.useEffect(() => {
+        api.get(`mahasiswa.php?dosen_id=${user.dosen_id}`).then(setMhs);
+      }, []);
+
+      const h = async (e) => {
+        e.preventDefault();
+        setL(true);
+
+        const selected = mhs.find(m => m.id === form.mahasiswa_id) || {};
+        const r = await api.post('deteksi.php', {
+          ...form,
+          user_id: selected.user_id,
+          dosen_id: user.dosen_id
+        });
+
+        setResult(r);
+        setL(false);
+      };
+
+      const badge = () => {
+        if (!result) return null;
+        if (result.pelanggaran_berat && result.peringatan_akademik) {
+          return ['bg-red-100 text-red-800', 'shield-warning-linear'];
+        }
+        if (result.pelanggaran_berat) {
+          return ['bg-red-100 text-red-800', 'shield-warning-linear'];
+        }
+        if (result.peringatan_akademik) {
+          return ['bg-amber-100 text-amber-800', 'bell-linear'];
+        }
+        return ['bg-green-100 text-green-800', 'shield-check-linear'];
+      };
+
+      const gejalaList = [
+        { k: 'P', l: 'Kehadiran < 75%', c: 'bg-blue-100 text-blue-700' },
+        { k: 'Q', l: 'Plagiarisme', c: 'bg-red-100 text-red-700' },
+        { k: 'R', l: 'Menyontek', c: 'bg-red-100 text-red-700' },
+        { k: 'S', l: 'Tugas Tepat Waktu', c: 'bg-green-100 text-green-700' },
+      ];
+
+      return (
+        <div className="space-y-6 fade-in">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card title={<span><Icon icon="pen-new-square-linear" className="text-blue-600 mr-2" />Input Deteksi — Kelas {user.nama_kelas}</span>}>
+              <form onSubmit={h} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wide">
+                    Mahasiswa
+                  </label>
+                  <select
+                    value={form.mahasiswa_id}
+                    onChange={e => setForm({ ...form, mahasiswa_id: parseInt(e.target.value) })}
+                    required
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value={0}>— Pilih Mahasiswa —</option>
+                    {mhs.map(m => (
+                      <option key={m.id} value={m.id}>{m.nim} - {m.nama}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <hr className="border-slate-200" />
+                <p className="text-sm font-medium text-slate-700">Gejala (0=Tidak, 1=Ya)</p>
+
+                {gejalaList.map(d => (
+                  <div key={d.k} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className={`w-8 h-8 rounded-lg ${d.c} flex items-center justify-center font-bold text-sm`}>
+                        {d.k}
+                      </span>
+                      <span className="text-sm text-slate-700">{d.l}</span>
+                    </div>
+                    <select
+                      value={form[d.k]}
+                      onChange={e => setForm({ ...form, [d.k]: parseInt(e.target.value) })}
+                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm"
+                    >
+                      <option value={0}>0 (Tidak)</option>
+                      <option value={1}>1 (Ya)</option>
+                    </select>
+                  </div>
+                ))}
+
+                <button
+                  type="submit"
+                  disabled={load}
+                  className="w-full py-2.5 bg-primary-900 text-white rounded-lg font-medium hover:bg-primary-800 transition-all flex items-center justify-center gap-2"
+                >
+                  {load ? <Icon icon="spinner-linear" className="animate-spin" /> : <Icon icon="magnifer-linear" />}
+                  DETEKSI
+                </button>
+              </form>
+            </Card>
+
+            <div className="space-y-6">
+              {result ? (
+                <>
+                  <Card>
+                    <div className="text-center">
+                      <span className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-bold border ${badge()[0]}`}>
+                        <Icon icon={badge()[1]} className="mr-2" />
+                        {result.status_label}
+                      </span>
+                      <p className="mt-2 text-sm text-slate-500">
+                        {result.nama} — {result.nim} • Kelas {result.nama_kelas}
+                      </p>
+                    </div>
+                  </Card>
+
+                  <Card title="Reasoning Path">
+                    <div className="space-y-1 font-mono text-sm">
+                      {(result.reasoning_path || []).map((s, i) => {
+                        let cls = 'text-slate-600';
+                        if (s.startsWith('===')) {
+                          cls = 'font-bold text-slate-700 bg-slate-50 px-3 py-1.5 rounded-lg -mx-3 mt-2 mb-1';
+                        } else if (s.startsWith('Rule')) {
+                          cls = 'text-blue-700 font-medium';
+                        } else if (s.includes('TERPENUHI')) {
+                          cls = 'text-green-700 ml-4';
+                        } else if (s.includes('tidak')) {
+                          cls = 'text-slate-500 ml-4';
+                        }
+                        return <p key={i} className={cls}>{s}</p>;
+                      })}
+                    </div>
+                  </Card>
+
+                  <Card title="Output">
+                    <div className={`
+                      p-4 rounded-xl font-bold text-center text-lg
+                      ${result.pelanggaran_berat
+                        ? 'bg-red-50 text-red-700 border border-red-200'
+                        : result.peringatan_akademik
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                          : 'bg-green-50 text-green-700 border border-green-200'
+                      }
+                    `}>
+                      {result.status_label}
+                    </div>
+                  </Card>
+                </>
+              ) : (
+                <Card className="p-10 text-center text-slate-400">
+                  <Icon icon="document-text-linear" size="4em" className="mb-4 text-slate-300 block mx-auto" />
+                  <p className="text-lg font-medium text-slate-500 mb-1">Pilih mahasiswa & gejala</p>
+                  <p className="text-sm">Kemudian tekan Deteksi.</p>
+                </Card>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — RIWAYAT DETEKSI
+    // ===================================================================
+    const RiwayatDeteksi = ({ user }) => {
+      const [data, setData] = React.useState([]);
+      const [detail, setDetail] = React.useState(null);
+      const [modal, setModal] = React.useState(false);
+
+      React.useEffect(() => {
+        let params = '';
+        if (user.role === 'admin') params = 'role=admin';
+        else if (user.role === 'dosen') params = `role=dosen&dosen_id=${user.dosen_id}`;
+        else params = `role=mahasiswa&user_id=${user.id}`;
+
+        api.get(`deteksi.php?${params}`).then(d => {
+          if (Array.isArray(d)) setData(d);
+        });
+      }, []);
+
+      const show = async (id) => {
+        const d = await api.get(`deteksi.php?id=${id}`);
+        if (d.details) {
+          setDetail(d);
+          setModal(true);
+        }
+      };
+
+      const showDosen = user.role !== 'mahasiswa';
+      const showKelas = showDosen;
+
+      return (
+        <div className="space-y-6 fade-in">
+          <Card title={
+            <span>
+              <Icon icon="clock-circle-linear" className="text-blue-600 mr-2" />
+              {user.role === 'admin'
+                ? 'Semua Riwayat Deteksi'
+                : user.role === 'dosen'
+                  ? `Riwayat Kelas ${user.nama_kelas}`
+                  : 'Riwayat Saya'
+              }
+            </span>
+          }>
+            {!data.length ? (
+              <div className="text-center py-16 text-slate-400">
+                <Icon icon="clock-circle-linear" size="4em" className="mb-4 text-slate-300 block mx-auto" />
+                <p className="text-lg font-medium text-slate-500">Belum ada riwayat</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-medium">
+                      <th className="px-4 py-3 text-left">Tanggal</th>
+                      {showDosen && <th className="px-4 py-3 text-left">Mahasiswa</th>}
+                      {showKelas && <th className="px-4 py-3 text-left">Kelas</th>}
+                      <th className="px-4 py-3 text-center">P</th>
+                      <th className="px-4 py-3 text-center">Q</th>
+                      <th className="px-4 py-3 text-center">R</th>
+                      <th className="px-4 py-3 text-center">S</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                      <th className="px-4 py-3 text-center">Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.map(r => (
+                      <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                          {(r.created_at || '').substring(0, 16).replace('T', ' ')}
+                        </td>
+                        {showDosen && (
+                          <td className="px-4 py-3 font-medium text-slate-900">{r.nama_mahasiswa}</td>
+                        )}
+                        {showKelas && (
+                          <td className="px-4 py-3">
+                            <Badge color={kelasColor(r.nama_kelas)}>{r.nama_kelas}</Badge>
+                          </td>
+                        )}
+                        {['P', 'Q', 'R', 'S'].map(k => (
+                          <td
+                            key={k}
+                            className={`px-4 py-3 text-center font-bold ${r[k] ? 'text-green-600' : 'text-red-600'}`}
+                          >
+                            {r[k] ? 1 : 0}
+                          </td>
+                        ))}
+                        <td className="px-4 py-3">
+                          <Badge color={badgeColor(r)}>{r.status_label}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button onClick={() => show(r.id)} className="text-blue-600 hover:text-blue-800 text-xs font-medium">
+                            Lihat
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+
+          <Modal isOpen={modal} onClose={() => setModal(false)} title="Detail Reasoning Path">
+            {detail && (
+              <div className="space-y-1 font-mono text-sm max-h-80 overflow-y-auto">
+                {(detail.details || []).map(d => {
+                  let cls = 'text-slate-600';
+                  if (d.keterangan.startsWith('===')) {
+                    cls = 'font-bold text-slate-700 bg-slate-50 px-3 py-1.5 rounded-lg -mx-3 mt-2 mb-1 block';
+                  } else if (d.keterangan.startsWith('Rule')) {
+                    cls = 'text-blue-700 font-medium';
+                  } else if (d.keterangan.includes('TERPENUHI')) {
+                    cls = 'text-green-700 ml-4';
+                  } else if (d.keterangan.includes('tidak')) {
+                    cls = 'text-slate-500 ml-4';
+                  }
+                  return <p key={d.id} className={cls}>{d.keterangan}</p>;
+                })}
+              </div>
+            )}
+          </Modal>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // PAGES — ALL DETEKSI (ADMIN)
+    // ===================================================================
+    const AllDeteksi = () => <RiwayatDeteksi user={{ role: 'admin' }} />;
+
+    // ===================================================================
+    // PAGES — TEST CASES
+    // ===================================================================
+    const TestCases = () => {
+      const [data, setData] = React.useState(null);
+
+      React.useEffect(() => {
+        api.get('test_cases.php').then(setData);
+      }, []);
+
+      if (!data) {
+        return (
+          <div className="text-center py-20 text-slate-400">
+            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          </div>
+        );
+      }
+
+      return (
+        <div className="space-y-6 fade-in">
+          <Card title={<span><Icon icon="clipboard-check-linear" className="text-blue-600 mr-2" />24 Skenario Pengujian</span>}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-medium">
+                    <th className="px-4 py-3 text-left">Skenario</th>
+                    <th className="px-4 py-3 text-center">P</th>
+                    <th className="px-4 py-3 text-center">Q</th>
+                    <th className="px-4 py-3 text-center">R</th>
+                    <th className="px-4 py-3 text-center">S</th>
+                    <th className="px-4 py-3 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.map((t, i) => {
+                    const c = t.pelanggaran_berat && t.peringatan_akademik
+                      ? 'bg-red-100 text-red-700 border-red-200'
+                      : t.pelanggaran_berat
+                        ? 'bg-red-50 text-red-600 border-red-100'
+                        : t.peringatan_akademik
+                          ? 'bg-amber-50 text-amber-600 border-amber-100'
+                          : 'bg-green-50 text-green-600 border-green-100';
+
+                    return (
+                      <tr key={i} className="hover:bg-slate-50/80">
+                        <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{t.label}</td>
+                        <td className="px-4 py-3 text-center font-bold">
+                          {t.P ? <span className="text-green-600">T</span> : <span className="text-red-600">F</span>}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold">
+                          {t.Q ? <span className="text-green-600">T</span> : <span className="text-red-600">F</span>}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold">
+                          {t.R ? <span className="text-green-600">T</span> : <span className="text-red-600">F</span>}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold">
+                          {t.S ? <span className="text-green-600">T</span> : <span className="text-red-600">F</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium border ${c}`}>
+                            {t.status}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      );
+    };
+
+    // ===================================================================
+    // APP
+    // ===================================================================
+    const App = () => {
+      const [user, setUser] = React.useState(null);
+      const [view, setView] = React.useState('dashboard');
+
+      React.useEffect(() => {
+        const s = sessionStorage.getItem('siakad_user');
+        if (s) setUser(JSON.parse(s));
+      }, []);
+
+      const login = (u) => {
+        setUser(u);
+        sessionStorage.setItem('siakad_user', JSON.stringify(u));
+      };
+
+      const logout = () => {
+        setUser(null);
+        sessionStorage.removeItem('siakad_user');
+      };
+
+      if (!user) return <Login onLogin={login} />;
+
+      const pages = {
+        admin: {
+          dashboard: <DashboardAdmin />,
+          kelas: <DataKelas />,
+          dosen: <DataDosen />,
+          mahasiswa: <DataMahasiswa />,
+          rules: <RulesPage />,
+          deteksi: <AllDeteksi />,
+          test: <TestCases />,
+        },
+        dosen: {
+          dashboard: <DashboardDosen user={user} />,
+          input: <InputDeteksi user={user} />,
+          riwayat: <RiwayatDeteksi user={user} />,
+          rules: <RulesPage />,
+          test: <TestCases />,
+        },
+        mahasiswa: {
+          dashboard: <DashboardMahasiswa user={user} />,
+          riwayat: <RiwayatDeteksi user={user} />,
+          rules: <RulesPage />,
+        },
+      };
+
+      const p = pages[user.role] || pages.mahasiswa;
+
+      return (
+        <Layout user={user} view={view} setView={setView} onLogout={logout}>
+          {p[view] || p.dashboard}
+        </Layout>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
