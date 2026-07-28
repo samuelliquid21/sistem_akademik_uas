@@ -1,5 +1,7 @@
 <?php
 require_once 'config.php';
+$session = validate_token();
+
 $stmt = $pdo->query("SELECT k.*, d.nama as nama_dosen, d.nip, u.nama as nama_user FROM kelas k JOIN dosen d ON d.id=k.dosen_id JOIN users u ON u.id=d.user_id ORDER BY k.nama_kelas ASC");
 $kelas = $stmt->fetchAll();
 foreach ($kelas as &$k) {

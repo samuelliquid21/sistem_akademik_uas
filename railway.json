@@ -1,0 +1,10 @@
+{
+  "build": {
+    "builder": "nixpacks"
+  },
+  "deploy": {
+    "startCommand": "./start.sh",
+    "healthcheckPath": "/app.html",
+    "restartPolicyType": "always"
+  }
+}

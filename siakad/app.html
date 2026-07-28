@@ -12,6 +12,7 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -40,14 +41,14 @@
     }
 
     @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(8px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media print {
+      aside, header, .no-print { display: none !important; }
+      main { margin-left: 0 !important; }
+      body { background: white; }
     }
   </style>
 
@@ -82,16 +83,36 @@
     // ===================================================================
     const API_BASE = window.location.origin + '/api';
 
+    const authHeaders = () => {
+      try {
+        const u = JSON.parse(sessionStorage.getItem('siakad_user') || '{}');
+        return u.token ? { 'Authorization': 'Bearer ' + u.token } : {};
+      } catch { return {}; }
+    };
+
+    const handleUnauth = () => {
+      sessionStorage.removeItem('siakad_user');
+      window.location.reload();
+    };
+
     const api = {
       post: (endpoint, data) =>
         fetch(`${API_BASE}/${endpoint}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify(data)
-        }).then(r => r.json()),
+        }).then(r => {
+          if (r.status === 401) { handleUnauth(); }
+          return r.json();
+        }),
 
       get: (endpoint) =>
-        fetch(`${API_BASE}/${endpoint}`).then(r => r.json())
+        fetch(`${API_BASE}/${endpoint}`, {
+          headers: { ...authHeaders() }
+        }).then(r => {
+          if (r.status === 401) { handleUnauth(); }
+          return r.json();
+        })
     };
 
     // ===================================================================
@@ -168,10 +189,46 @@
 
       return (
         <div className={`fixed bottom-4 right-4 z-50 flex items-center gap-3 px-4 py-3 text-white rounded-lg shadow-lg fade-in ${c[type]}`}>
-          <Icon icon={type === 'success' ? 'check-circle-linear' : 'danger-circle-linear'} />
+          <Icon icon={type === 'success' ? 'check-circle-linear' : type === 'error' ? 'danger-circle-linear' : 'info-circle-linear'} />
           <span className="text-sm font-medium">{message}</span>
         </div>
       );
+    };
+
+    const Skeleton = ({ count = 4 }) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: count }).map((_, i) => (
+          <div key={i} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden p-4 animate-pulse">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-slate-200" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 bg-slate-200 rounded w-2/3" />
+                <div className="h-5 bg-slate-200 rounded w-1/2" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+
+    const ToastContainer = () => {
+      const [toasts, setToasts] = React.useState([]);
+      React.useEffect(() => {
+        const handler = (e) => setToasts(prev => [...prev, { ...e.detail, id: Date.now() }]);
+        window.addEventListener('toast', handler);
+        return () => window.removeEventListener('toast', handler);
+      }, []);
+      return (
+        <div className="fixed bottom-4 right-4 z-50 space-y-2">
+          {toasts.map(t => (
+            <Toast key={t.id} {...t} onClose={() => setToasts(prev => prev.filter(x => x.id !== t.id))} />
+          ))}
+        </div>
+      );
+    };
+
+    const showToast = (message, type = 'success') => {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message, type } }));
     };
 
     // ===================================================================
@@ -316,6 +373,7 @@
           { id: 'rules', label: 'Rule & Tabel', icon: 'notebook-linear' },
           { id: 'deteksi', label: 'Semua Deteksi', icon: 'clipboard-check-linear' },
           { id: 'test', label: 'Uji Coba', icon: 'code-linear' },
+          { id: 'profile', label: 'Profil Saya', icon: 'user-circle-linear' },
         ],
         dosen: [
           { id: 'dashboard', label: 'Dashboard', icon: 'widget-2-linear' },
@@ -323,11 +381,13 @@
           { id: 'riwayat', label: 'Riwayat Kelas', icon: 'clock-circle-linear' },
           { id: 'rules', label: 'Rule & Tabel', icon: 'notebook-linear' },
           { id: 'test', label: 'Uji Coba', icon: 'code-linear' },
+          { id: 'profile', label: 'Profil Saya', icon: 'user-circle-linear' },
         ],
         mahasiswa: [
           { id: 'dashboard', label: 'Dashboard Saya', icon: 'widget-2-linear' },
           { id: 'riwayat', label: 'Riwayat Saya', icon: 'clock-circle-linear' },
           { id: 'rules', label: 'Rule & Tabel', icon: 'notebook-linear' },
+          { id: 'profile', label: 'Profil Saya', icon: 'user-circle-linear' },
         ]
       };
 
@@ -440,28 +500,69 @@
     };
 
     // ===================================================================
-    // PAGES — DASHBOARD ADMIN
+    // CHARTS
     // ===================================================================
-    const DashboardAdmin = () => {
-      const [s, setS] = React.useState(null);
-      const [r, setR] = React.useState([]);
+    const ChartBar = ({ data, labels, title, colors }) => {
+      const ref = React.useRef(null);
+      const chartRef = React.useRef(null);
 
       React.useEffect(() => {
-        api.get('dashboard.php?role=admin').then(d => {
-          if (d.stats) {
-            setS(d.stats);
-            setR(d.recent || []);
+        if (!ref.current || !data) return;
+        if (chartRef.current) chartRef.current.destroy();
+        const ctx = ref.current.getContext('2d');
+        chartRef.current = new Chart(ctx, {
+          type: 'bar',
+          data: { labels, datasets: [{ data, backgroundColor: colors || '#1e3a5f', borderRadius: 6 }] },
+          options: {
+            responsive: true, plugins: { legend: { display: false }, title: { display: !!title, text: title, color: '#1e293b', font: { size: 14 } } },
+            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
           }
         });
-      }, []);
+        return () => { if (chartRef.current) chartRef.current.destroy(); };
+      }, [data, labels, title]);
 
-      if (!s) {
+      return <canvas ref={ref} />;
+    };
+
+    // ===================================================================
+    // PAGES — DASHBOARD ADMIN
+    // ===================================================================
+    const useIntervalFetch = (url, interval = 30000) => {
+      const [data, setData] = React.useState(null);
+      const [err, setErr] = React.useState('');
+
+      const fetch_ = React.useCallback(() => {
+        api.get(url).then(d => {
+          if (d && !d.error) { setData(d); setErr(''); }
+          else if (d && d.error) setErr(d.error);
+        }).catch(() => setErr('Gagal memuat data'));
+      }, [url]);
+
+      React.useEffect(() => {
+        fetch_();
+        const id = setInterval(fetch_, interval);
+        return () => clearInterval(id);
+      }, [fetch_, interval]);
+
+      return [data, err];
+    };
+
+    const DashboardAdmin = () => {
+      const [d, err] = useIntervalFetch('dashboard.php');
+      const s = d?.stats;
+      const r = d?.recent || [];
+
+      if (err) {
         return (
-          <div className="text-center py-20 text-slate-400">
-            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          <div className="text-center py-20">
+            <div className="p-4 rounded-xl bg-red-50 text-red-600 border border-red-200 inline-flex items-center gap-2">
+              <Icon icon="danger-circle-linear" /> {err}
+            </div>
           </div>
         );
       }
+
+      if (!s) return <div className="space-y-6 fade-in"><Skeleton /></div>;
 
       const stats = [
         { l: 'Total Mahasiswa', v: s.total_mahasiswa, ic: 'users-group-rounded-linear', c: 'text-blue-600', b: 'bg-blue-50' },
@@ -485,6 +586,20 @@
               </Card>
             ))}
           </div>
+
+          <Card title="Statistik Deteksi">
+            <div className="mb-4">
+              <ChartBar
+                data={[s.total_aman || 0, s.total_berat || 0]}
+                labels={['Status Aman', 'Pelanggaran Berat']}
+                colors={['#059669', '#dc2626']}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-center text-sm">
+              <div className="bg-green-50 rounded-lg p-3"><span className="font-bold text-green-700">{s.total_aman || 0}</span> <span className="text-slate-500">Aman</span></div>
+              <div className="bg-red-50 rounded-lg p-3"><span className="font-bold text-red-700">{s.total_berat || 0}</span> <span className="text-slate-500">Berat</span></div>
+            </div>
+          </Card>
 
           <Card title="Deteksi Terbaru (Semua Kelas)">
             {r.length === 0 ? (
@@ -533,25 +648,21 @@
     // PAGES — DASHBOARD DOSEN
     // ===================================================================
     const DashboardDosen = ({ user }) => {
-      const [s, setS] = React.useState(null);
-      const [r, setR] = React.useState([]);
+      const [d, err] = useIntervalFetch('dashboard.php');
+      const s = d?.stats;
+      const r = d?.recent || [];
 
-      React.useEffect(() => {
-        api.get(`dashboard.php?role=dosen&dosen_id=${user.dosen_id}`).then(d => {
-          if (d.stats) {
-            setS(d.stats);
-            setR(d.recent || []);
-          }
-        });
-      }, []);
-
-      if (!s) {
+      if (err) {
         return (
-          <div className="text-center py-20 text-slate-400">
-            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          <div className="text-center py-20">
+            <div className="p-4 rounded-xl bg-red-50 text-red-600 border border-red-200 inline-flex items-center gap-2">
+              <Icon icon="danger-circle-linear" /> {err}
+            </div>
           </div>
         );
       }
+
+      if (!s) return <div className="space-y-6 fade-in"><Skeleton count={3} /></div>;
 
       return (
         <div className="space-y-6 fade-in">
@@ -593,25 +704,21 @@
     // PAGES — DASHBOARD MAHASISWA
     // ===================================================================
     const DashboardMahasiswa = ({ user }) => {
-      const [s, setS] = React.useState(null);
-      const [r, setR] = React.useState([]);
+      const [d, err] = useIntervalFetch('dashboard.php');
+      const s = d?.stats;
+      const r = d?.recent || [];
 
-      React.useEffect(() => {
-        api.get(`dashboard.php?role=mahasiswa&user_id=${user.id}`).then(d => {
-          if (d.stats) {
-            setS(d.stats);
-            setR(d.recent || []);
-          }
-        });
-      }, []);
-
-      if (!s) {
+      if (err) {
         return (
-          <div className="text-center py-20 text-slate-400">
-            <Icon icon="spinner-linear" className="animate-spin inline-block" size="2em" />
+          <div className="text-center py-20">
+            <div className="p-4 rounded-xl bg-red-50 text-red-600 border border-red-200 inline-flex items-center gap-2">
+              <Icon icon="danger-circle-linear" /> {err}
+            </div>
           </div>
         );
       }
+
+      if (!s) return <div className="space-y-6 fade-in"><Skeleton count={2} /></div>;
 
       return (
         <div className="space-y-6 fade-in">
@@ -679,10 +786,38 @@
     // ===================================================================
     const DataKelas = () => {
       const [data, setData] = React.useState([]);
+      const [dosenOpt, setDosen] = React.useState([]);
+      const [modal, setModal] = React.useState(null);
+      const [form, setForm] = React.useState({ nama_kelas: '', dosen_id: '' });
 
-      React.useEffect(() => {
-        api.get('kelas.php').then(setData);
-      }, []);
+      const load = () => api.get('kelas.php').then(setData);
+      React.useEffect(() => { load(); api.get('dosen.php').then(setDosen); }, []);
+
+      const save = async () => {
+        const isEdit = modal === 'edit';
+        const payload = isEdit ? { ...form, id: form.id } : form;
+        const r = await fetch(API_BASE + '/admin.php?entity=kelas', {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify(payload)
+        }).then(r => r.json());
+        if (r.success) { showToast(isEdit ? 'Kelas diupdate' : 'Kelas ditambahkan', 'success'); setModal(null); load(); }
+        else showToast(r.error || 'Gagal', 'error');
+      };
+
+      const hapus = async (id) => {
+        if (!confirm('Yakin hapus kelas ini? Mahasiswa di dalamnya juga akan terhapus.')) return;
+        const r = await fetch(API_BASE + '/admin.php?entity=kelas&id=' + id, {
+          method: 'DELETE', headers: { ...authHeaders() }
+        }).then(r => r.json());
+        if (r.success) { showToast('Kelas dihapus', 'success'); load(); }
+        else showToast(r.error || 'Gagal', 'error');
+      };
+
+      const openEdit = (k) => {
+        setForm({ id: k.id, nama_kelas: k.nama_kelas, dosen_id: k.dosen_id || '' });
+        setModal('edit');
+      };
 
       if (!data.length) {
         return (
@@ -706,12 +841,26 @@
 
       return (
         <div className="space-y-6 fade-in">
+          <div className="flex justify-end mb-2">
+            <button onClick={() => { setForm({ nama_kelas: '', dosen_id: '' }); setModal('add'); }}
+              className="text-xs bg-primary-900 text-white px-3 py-1.5 rounded-lg hover:bg-primary-800 font-medium flex items-center gap-1">
+              <Icon icon="add-circle-linear" /> Tambah Kelas
+            </button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {data.map(k => (
               <Card key={k.id} className="overflow-hidden hover:shadow-lg transition-all">
                 <div className={`bg-gradient-to-br ${cols[k.nama_kelas] || 'from-primary-900 to-primary-800'} text-white p-5 -m-5 mb-4`}>
-                  <h3 className="text-xl font-bold">Kelas {k.nama_kelas}</h3>
-                  <p className="text-sm opacity-80">{k.nama_dosen}</p>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-xl font-bold">Kelas {k.nama_kelas}</h3>
+                      <p className="text-sm opacity-80">{k.nama_dosen}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => openEdit(k)} className="text-white/80 hover:text-white text-xs bg-white/10 px-2 py-1 rounded">Edit</button>
+                      <button onClick={() => hapus(k.id)} className="text-white/80 hover:text-white text-xs bg-white/10 px-2 py-1 rounded">Hapus</button>
+                    </div>
+                  </div>
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
@@ -733,6 +882,25 @@
               </Card>
             ))}
           </div>
+
+          <Modal isOpen={!!modal} onClose={() => setModal(null)} title={modal === 'add' ? 'Tambah Kelas' : 'Edit Kelas'}>
+            <form onSubmit={e => { e.preventDefault(); save(); }} className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500">Nama Kelas</label>
+                <input value={form.nama_kelas} onChange={e => setForm({...form, nama_kelas: e.target.value})} required placeholder="Contoh: A" maxLength={1} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Dosen Wali</label>
+                <select value={form.dosen_id} onChange={e => setForm({...form, dosen_id: e.target.value})} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                  <option value="">— Pilih Dosen —</option>
+                  {dosenOpt.map(d => <option key={d.id} value={d.id}>{d.nama} ({d.nip})</option>)}
+                </select>
+              </div>
+              <button type="submit" className="w-full py-2 bg-primary-900 text-white rounded-lg font-medium hover:bg-primary-800 text-sm">
+                {modal === 'add' ? 'Tambah' : 'Simpan'}
+              </button>
+            </form>
+          </Modal>
         </div>
       );
     };
@@ -742,10 +910,38 @@
     // ===================================================================
     const DataDosen = () => {
       const [data, setData] = React.useState([]);
+      const [kelasOpt, setKelas] = React.useState([]);
+      const [modal, setModal] = React.useState(null);
+      const [form, setForm] = React.useState({ nip: '', nama: '', prodi: '', username: '', password: '', kelas_id: '' });
 
-      React.useEffect(() => {
-        api.get('dosen.php').then(setData);
-      }, []);
+      const load = () => api.get('dosen.php').then(setData);
+      React.useEffect(() => { load(); api.get('kelas.php').then(setKelas); }, []);
+
+      const save = async () => {
+        const isEdit = modal === 'edit';
+        const payload = isEdit ? { ...form, id: form.id } : form;
+        const r = await fetch(API_BASE + '/admin.php?entity=dosen', {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify(payload)
+        }).then(r => r.json());
+        if (r.success) { showToast(isEdit ? 'Dosen diupdate' : 'Dosen ditambahkan', 'success'); setModal(null); load(); }
+        else showToast(r.error || 'Gagal', 'error');
+      };
+
+      const hapus = async (id) => {
+        if (!confirm('Yakin hapus dosen ini?')) return;
+        const r = await fetch(API_BASE + '/admin.php?entity=dosen&id=' + id, {
+          method: 'DELETE', headers: { ...authHeaders() }
+        }).then(r => r.json());
+        if (r.success) { showToast('Dosen dihapus', 'success'); load(); }
+        else showToast(r.error || 'Gagal', 'error');
+      };
+
+      const openEdit = (d) => {
+        setForm({ id: d.id, nip: d.nip, nama: d.nama, prodi: d.prodi || '', username: d.username, password: '', kelas_id: d.kelas_id || '' });
+        setModal('edit');
+      };
 
       if (!data.length) {
         return (
@@ -757,7 +953,15 @@
 
       return (
         <div className="space-y-6 fade-in">
-          <Card title="Data Dosen">
+          <Card
+            title="Data Dosen"
+            action={
+              <button onClick={() => { setForm({ nip: '', nama: '', prodi: '', username: '', password: '', kelas_id: '' }); setModal('add'); }}
+                className="text-xs bg-primary-900 text-white px-3 py-1.5 rounded-lg hover:bg-primary-800 font-medium flex items-center gap-1">
+                <Icon icon="add-circle-linear" /> Tambah
+              </button>
+            }
+          >
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -767,6 +971,7 @@
                     <th className="px-4 py-3 text-left">Prodi</th>
                     <th className="px-4 py-3 text-left">Username</th>
                     <th className="px-4 py-3 text-left">Kelas</th>
+                    <th className="px-4 py-3 text-center">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -779,12 +984,51 @@
                       <td className="px-4 py-3">
                         <Badge color={kelasColor(d.nama_kelas)}>{d.nama_kelas || '-'}</Badge>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        <button onClick={() => openEdit(d)} className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-2">Edit</button>
+                        <button onClick={() => hapus(d.id)} className="text-red-600 hover:text-red-800 text-xs font-medium">Hapus</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </Card>
+
+          <Modal isOpen={!!modal} onClose={() => setModal(null)} title={modal === 'add' ? 'Tambah Dosen' : 'Edit Dosen'}>
+            <form onSubmit={e => { e.preventDefault(); save(); }} className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500">NIP</label>
+                <input value={form.nip} onChange={e => setForm({...form, nip: e.target.value})} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Nama</label>
+                <input value={form.nama} onChange={e => setForm({...form, nama: e.target.value})} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Prodi</label>
+                <input value={form.prodi} onChange={e => setForm({...form, prodi: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Username</label>
+                <input value={form.username} onChange={e => setForm({...form, username: e.target.value})} required disabled={modal === 'edit'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Password {modal === 'edit' && <span className="text-slate-400">(kosongkan jika tidak diganti)</span>}</label>
+                <input value={form.password} onChange={e => setForm({...form, password: e.target.value})} type="password" required={modal === 'add'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Kelas</label>
+                <select value={form.kelas_id} onChange={e => setForm({...form, kelas_id: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                  <option value="">— Tidak mengajar —</option>
+                  {kelasOpt.map(k => <option key={k.id} value={k.id}>Kelas {k.nama_kelas}</option>)}
+                </select>
+              </div>
+              <button type="submit" className="w-full py-2 bg-primary-900 text-white rounded-lg font-medium hover:bg-primary-800 text-sm">
+                {modal === 'add' ? 'Tambah' : 'Simpan'}
+              </button>
+            </form>
+          </Modal>
         </div>
       );
     };
@@ -794,10 +1038,44 @@
     // ===================================================================
     const DataMahasiswa = () => {
       const [data, setData] = React.useState([]);
+      const [kelasOpt, setKelas] = React.useState([]);
+      const [modal, setModal] = React.useState(null);
+      const [form, setForm] = React.useState({ nim: '', nama: '', username: '', password: '', kelas_id: '' });
+      const [search, setSearch] = React.useState('');
 
-      React.useEffect(() => {
-        api.get('mahasiswa.php?role=admin').then(setData);
-      }, []);
+      const load = () => api.get('mahasiswa.php').then(setData);
+      React.useEffect(() => { load(); api.get('kelas.php').then(setKelas); }, []);
+
+      const filtered = data.filter(m => {
+        const q = search.toLowerCase();
+        return !q || m.nim.toLowerCase().includes(q) || m.nama.toLowerCase().includes(q) || m.username.toLowerCase().includes(q);
+      });
+
+      const save = async () => {
+        const isEdit = modal === 'edit';
+        const payload = isEdit ? { ...form, id: form.id } : form;
+        const method = isEdit ? 'PUT' : 'POST';
+        const r = await fetch(API_BASE + '/admin.php?entity=mahasiswa', {
+          method, headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify(payload)
+        }).then(r => r.json());
+        if (r.success) { showToast(isEdit ? 'Mahasiswa diupdate' : 'Mahasiswa ditambahkan', 'success'); setModal(null); load(); }
+        else showToast(r.error || 'Gagal', 'error');
+      };
+
+      const hapus = async (id) => {
+        if (!confirm('Yakin hapus mahasiswa ini?')) return;
+        const r = await fetch(API_BASE + '/admin.php?entity=mahasiswa&id=' + id, {
+          method: 'DELETE', headers: { ...authHeaders() }
+        }).then(r => r.json());
+        if (r.success) { showToast('Mahasiswa dihapus', 'success'); load(); }
+        else showToast(r.error || 'Gagal', 'error');
+      };
+
+      const openEdit = (m) => {
+        setForm({ id: m.id, nim: m.nim, nama: m.nama, username: m.username, password: '', kelas_id: m.kelas_id || '' });
+        setModal('edit');
+      };
 
       const cols = {
         A: 'bg-blue-50 text-blue-700 border-blue-100',
@@ -808,8 +1086,17 @@
       return (
         <div className="space-y-6 fade-in">
           <Card
-            title="Data Mahasiswa (30 orang)"
-            action={<span className="text-xs text-slate-400">NIM: 2510511000 - 2510511029</span>}
+            title={'Data Mahasiswa (' + filtered.length + ')'}
+            action={
+              <div className="flex items-center gap-2">
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari NIM/nama..."
+                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs w-40 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                <button onClick={() => { setForm({ nim: '', nama: '', username: '', password: '', kelas_id: '' }); setModal('add'); }}
+                  className="text-xs bg-primary-900 text-white px-3 py-1.5 rounded-lg hover:bg-primary-800 font-medium flex items-center gap-1">
+                  <Icon icon="add-circle-linear" /> Tambah
+                </button>
+              </div>
+            }
           >
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -819,10 +1106,11 @@
                     <th className="px-4 py-3 text-left">Nama</th>
                     <th className="px-4 py-3 text-left">Username</th>
                     <th className="px-4 py-3 text-left">Kelas</th>
+                    <th className="px-4 py-3 text-center">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {data.map(m => (
+                  {filtered.map(m => (
                     <tr key={m.id} className="hover:bg-slate-50/80">
                       <td className="px-4 py-3 font-mono text-slate-500">{m.nim}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{m.nama}</td>
@@ -832,12 +1120,47 @@
                           Kelas {m.nama_kelas}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        <button onClick={() => openEdit(m)} className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-2">Edit</button>
+                        <button onClick={() => hapus(m.id)} className="text-red-600 hover:text-red-800 text-xs font-medium">Hapus</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </Card>
+
+          <Modal isOpen={!!modal} onClose={() => setModal(null)} title={modal === 'add' ? 'Tambah Mahasiswa' : 'Edit Mahasiswa'}>
+            <form onSubmit={e => { e.preventDefault(); save(); }} className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500">NIM</label>
+                <input value={form.nim} onChange={e => setForm({...form, nim: e.target.value})} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Nama</label>
+                <input value={form.nama} onChange={e => setForm({...form, nama: e.target.value})} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Username</label>
+                <input value={form.username} onChange={e => setForm({...form, username: e.target.value})} required disabled={modal === 'edit'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Password {modal === 'edit' && <span className="text-slate-400">(kosongkan jika tidak diganti)</span>}</label>
+                <input value={form.password} onChange={e => setForm({...form, password: e.target.value})} type="password" required={modal === 'add'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Kelas</label>
+                <select value={form.kelas_id} onChange={e => setForm({...form, kelas_id: e.target.value})} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                  <option value="">— Pilih Kelas —</option>
+                  {kelasOpt.map(k => <option key={k.id} value={k.id}>Kelas {k.nama_kelas}</option>)}
+                </select>
+              </div>
+              <button type="submit" className="w-full py-2 bg-primary-900 text-white rounded-lg font-medium hover:bg-primary-800 text-sm">
+                {modal === 'add' ? 'Tambah' : 'Simpan'}
+              </button>
+            </form>
+          </Modal>
         </div>
       );
     };
@@ -1012,19 +1335,14 @@
       const [load, setL] = React.useState(false);
 
       React.useEffect(() => {
-        api.get(`mahasiswa.php?dosen_id=${user.dosen_id}`).then(setMhs);
+        api.get('mahasiswa.php').then(setMhs);
       }, []);
 
       const h = async (e) => {
         e.preventDefault();
         setL(true);
 
-        const selected = mhs.find(m => m.id === form.mahasiswa_id) || {};
-        const r = await api.post('deteksi.php', {
-          ...form,
-          user_id: selected.user_id,
-          dosen_id: user.dosen_id
-        });
+        const r = await api.post('deteksi.php', form);
 
         setResult(r);
         setL(false);
@@ -1173,14 +1491,10 @@
       const [data, setData] = React.useState([]);
       const [detail, setDetail] = React.useState(null);
       const [modal, setModal] = React.useState(false);
+      const [search, setSearch] = React.useState('');
 
       React.useEffect(() => {
-        let params = '';
-        if (user.role === 'admin') params = 'role=admin';
-        else if (user.role === 'dosen') params = `role=dosen&dosen_id=${user.dosen_id}`;
-        else params = `role=mahasiswa&user_id=${user.id}`;
-
-        api.get(`deteksi.php?${params}`).then(d => {
+        api.get('deteksi.php').then(d => {
           if (Array.isArray(d)) setData(d);
         });
       }, []);
@@ -1196,19 +1510,39 @@
       const showDosen = user.role !== 'mahasiswa';
       const showKelas = showDosen;
 
+      const filtered = data.filter(d => {
+        const q = search.toLowerCase();
+        if (!q) return true;
+        return (d.nama_mahasiswa || '').toLowerCase().includes(q)
+          || (d.nim || '').toLowerCase().includes(q)
+          || (d.status_label || '').toLowerCase().includes(q);
+      });
+
       return (
         <div className="space-y-6 fade-in">
-          <Card title={
-            <span>
-              <Icon icon="clock-circle-linear" className="text-blue-600 mr-2" />
-              {user.role === 'admin'
-                ? 'Semua Riwayat Deteksi'
-                : user.role === 'dosen'
-                  ? `Riwayat Kelas ${user.nama_kelas}`
-                  : 'Riwayat Saya'
-              }
-            </span>
-          }>
+          <Card
+            title={
+              <span>
+                <Icon icon="clock-circle-linear" className="text-blue-600 mr-2" />
+                {user.role === 'admin'
+                  ? 'Semua Riwayat Deteksi'
+                  : user.role === 'dosen'
+                    ? `Riwayat Kelas ${user.nama_kelas}`
+                    : 'Riwayat Saya'
+                }
+              </span>
+            }
+            action={
+              <div className="flex items-center gap-2">
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cari mahasiswa/status..."
+                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs w-40 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                <button onClick={() => window.print()}
+                  className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-200 font-medium flex items-center gap-1 no-print">
+                  <Icon icon="printer-linear" /> Cetak
+                </button>
+              </div>
+            }
+          >
             {!data.length ? (
               <div className="text-center py-16 text-slate-400">
                 <Icon icon="clock-circle-linear" size="4em" className="mb-4 text-slate-300 block mx-auto" />
@@ -1231,7 +1565,7 @@
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {data.map(r => (
+                    {filtered.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                           {(r.created_at || '').substring(0, 16).replace('T', ' ')}
@@ -1295,6 +1629,59 @@
     // PAGES — ALL DETEKSI (ADMIN)
     // ===================================================================
     const AllDeteksi = () => <RiwayatDeteksi user={{ role: 'admin' }} />;
+
+    // ===================================================================
+    // PAGES — PROFILE
+    // ===================================================================
+    const ProfilePage = ({ user, onLogout }) => {
+      const [data, setData] = React.useState(null);
+      const [form, setForm] = React.useState({ old_password: '', new_password: '', confirm: '' });
+      const [msg, setMsg] = React.useState('');
+      const [err, setErr] = React.useState('');
+
+      React.useEffect(() => { api.get('profile.php').then(setData); }, []);
+
+      const changePw = async (e) => {
+        e.preventDefault();
+        setMsg(''); setErr('');
+        if (form.new_password !== form.confirm) { setErr('Konfirmasi password tidak cocok'); return; }
+        const r = await fetch(API_BASE + '/profile.php', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ old_password: form.old_password, new_password: form.new_password })
+        }).then(r => r.json());
+        if (r.success) { setMsg('Password berhasil diganti!'); setForm({ old_password: '', new_password: '', confirm: '' }); }
+        else setErr(r.error || 'Gagal');
+      };
+
+      return (
+        <div className="space-y-6 fade-in max-w-lg">
+          <Card title="Profil Saya">
+            {data && (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between p-3 bg-slate-50 rounded-lg"><span className="text-slate-500">Nama</span><span className="font-medium">{data.nama}</span></div>
+                <div className="flex justify-between p-3 bg-slate-50 rounded-lg"><span className="text-slate-500">Username</span><span className="font-medium">{data.username}</span></div>
+                <div className="flex justify-between p-3 bg-slate-50 rounded-lg"><span className="text-slate-500">Role</span><span className="font-medium uppercase">{data.role}</span></div>
+                {data.nim && <div className="flex justify-between p-3 bg-slate-50 rounded-lg"><span className="text-slate-500">NIM</span><span className="font-medium">{data.nim}</span></div>}
+                {data.nip && <div className="flex justify-between p-3 bg-slate-50 rounded-lg"><span className="text-slate-500">NIP</span><span className="font-medium">{data.nip}</span></div>}
+                {data.nama_kelas && <div className="flex justify-between p-3 bg-slate-50 rounded-lg"><span className="text-slate-500">Kelas</span><span className="font-medium">{data.nama_kelas}</span></div>}
+              </div>
+            )}
+          </Card>
+
+          <Card title="Ganti Password">
+            {msg && <div className="p-3 rounded-xl bg-green-50 text-green-700 text-sm border border-green-200 mb-3">{msg}</div>}
+            {err && <div className="p-3 rounded-xl bg-red-50 text-red-600 text-sm border border-red-200 mb-3">{err}</div>}
+            <form onSubmit={changePw} className="space-y-3">
+              <input value={form.old_password} onChange={e => setForm({...form, old_password: e.target.value})} type="password" placeholder="Password lama" required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              <input value={form.new_password} onChange={e => setForm({...form, new_password: e.target.value})} type="password" placeholder="Password baru" required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              <input value={form.confirm} onChange={e => setForm({...form, confirm: e.target.value})} type="password" placeholder="Konfirmasi password baru" required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              <button type="submit" className="w-full py-2 bg-primary-900 text-white rounded-lg font-medium hover:bg-primary-800 text-sm">Simpan Password</button>
+            </form>
+          </Card>
+        </div>
+      );
+    };
 
     // ===================================================================
     // PAGES — TEST CASES
@@ -1382,6 +1769,10 @@
         if (s) setUser(JSON.parse(s));
       }, []);
 
+      React.useEffect(() => {
+        if (user) showToast('Selamat datang, ' + user.nama + '!', 'success');
+      }, [user ? user.id : null]);
+
       const login = (u) => {
         setUser(u);
         sessionStorage.setItem('siakad_user', JSON.stringify(u));
@@ -1403,6 +1794,7 @@
           rules: <RulesPage />,
           deteksi: <AllDeteksi />,
           test: <TestCases />,
+          profile: <ProfilePage user={user} onLogout={logout} />,
         },
         dosen: {
           dashboard: <DashboardDosen user={user} />,
@@ -1410,11 +1802,13 @@
           riwayat: <RiwayatDeteksi user={user} />,
           rules: <RulesPage />,
           test: <TestCases />,
+          profile: <ProfilePage user={user} onLogout={logout} />,
         },
         mahasiswa: {
           dashboard: <DashboardMahasiswa user={user} />,
           riwayat: <RiwayatDeteksi user={user} />,
           rules: <RulesPage />,
+          profile: <ProfilePage user={user} onLogout={logout} />,
         },
       };
 
@@ -1428,7 +1822,7 @@
     };
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    root.render(<><App /><ToastContainer /></>);
   </script>
 </body>
 </html>

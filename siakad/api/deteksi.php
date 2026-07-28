@@ -2,20 +2,36 @@
 require_once 'config.php';
 require_once __DIR__ . '/../engine/inference.php';
 
+$session = validate_token();
+$role = $session['role'];
+$user_id = (int)$session['user_id'];
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'POST') {
+    if ($role !== 'dosen' && $role !== 'admin') {
+        json_response(['error' => 'Forbidden'], 403);
+    }
+
     $input = get_input();
     $mahasiswa_id = (int)($input['mahasiswa_id'] ?? 0);
-    $user_id = (int)($input['user_id'] ?? 0);
-    $dosen_id = (int)($input['dosen_id'] ?? 0);
     $P = (int)($input['P'] ?? 0);
     $Q = (int)($input['Q'] ?? 0);
     $R = (int)($input['R'] ?? 0);
     $S = (int)($input['S'] ?? 0);
 
-    if (!$mahasiswa_id || !$user_id || !$dosen_id) {
+    if (!$mahasiswa_id) {
         json_response(['error' => 'Data tidak lengkap'], 400);
+    }
+
+    // Get dosen_id from session
+    $stmt = $pdo->prepare("SELECT d.id as dosen_id FROM dosen d WHERE d.user_id=?");
+    $stmt->execute([$user_id]);
+    $dosenRow = $stmt->fetch();
+    $dosen_id = $dosenRow ? (int)$dosenRow['dosen_id'] : 0;
+
+    if (!$dosen_id) {
+        json_response(['error' => 'Dosen tidak ditemukan'], 400);
     }
 
     $engine = new InferenceEngine($P, $Q, $R, $S);
@@ -31,7 +47,6 @@ if ($method === 'POST') {
             $stmt->execute([$deteksi_id, $i + 1, $step]);
         }
 
-        // Get mahasiswa data
         $stmt = $pdo->prepare("SELECT m.*, k.nama_kelas FROM mahasiswa m JOIN kelas k ON k.id=m.kelas_id WHERE m.id=?");
         $stmt->execute([$mahasiswa_id]);
         $mhs = $stmt->fetch();
@@ -47,10 +62,6 @@ if ($method === 'POST') {
 
 } elseif ($method === 'GET') {
     $id = (int)($_GET['id'] ?? 0);
-    $role = $_GET['role'] ?? '';
-    $dosen_id = (int)($_GET['dosen_id'] ?? 0);
-    $kelas_id = (int)($_GET['kelas_id'] ?? 0);
-    $user_id = (int)($_GET['user_id'] ?? 0);
 
     try {
         if ($id) {
@@ -65,11 +76,16 @@ if ($method === 'POST') {
         } elseif ($role === 'admin') {
             $stmt = $pdo->query("SELECT d.*, m.nama as nama_mahasiswa, m.nim, k.nama_kelas, u.nama as nama_dosen FROM deteksi d JOIN mahasiswa m ON d.mahasiswa_id=m.id JOIN kelas k ON k.id=m.kelas_id JOIN dosen ds ON ds.id=d.dosen_id JOIN users u ON u.id=ds.user_id ORDER BY d.created_at DESC LIMIT 200");
             json_response($stmt->fetchAll());
-        } elseif ($role === 'dosen' && $dosen_id) {
+        } elseif ($role === 'dosen') {
+            $stmt = $pdo->prepare("SELECT d.id as dosen_id FROM dosen d WHERE d.user_id=?");
+            $stmt->execute([$user_id]);
+            $dosenRow = $stmt->fetch();
+            $dosen_id = $dosenRow ? (int)$dosenRow['dosen_id'] : 0;
+
             $stmt = $pdo->prepare("SELECT d.*, m.nama as nama_mahasiswa, m.nim, k.nama_kelas FROM deteksi d JOIN mahasiswa m ON d.mahasiswa_id=m.id JOIN kelas k ON k.id=m.kelas_id WHERE d.dosen_id=? ORDER BY d.created_at DESC");
             $stmt->execute([$dosen_id]);
             json_response($stmt->fetchAll());
-        } elseif ($role === 'mahasiswa' && $user_id) {
+        } elseif ($role === 'mahasiswa') {
             $stmt = $pdo->prepare("SELECT d.*, m.nama as nama_mahasiswa, m.nim, k.nama_kelas FROM deteksi d JOIN mahasiswa m ON d.mahasiswa_id=m.id JOIN kelas k ON k.id=m.kelas_id WHERE d.user_id=? ORDER BY d.created_at DESC");
             $stmt->execute([$user_id]);
             json_response($stmt->fetchAll());

@@ -11,7 +11,6 @@ if (!$username || !$password) json_response(['error' => 'Username dan password h
 
 $user = null;
 
-// Cek apakah login pakai NIM (mahasiswa) atau username (dosen/admin)
 $stmt = $pdo->prepare("SELECT u.*, m.nim FROM users u JOIN mahasiswa m ON m.user_id = u.id WHERE m.nim = ?");
 $stmt->execute([$username]);
 $user = $stmt->fetch();
@@ -23,7 +22,14 @@ if (!$user) {
 }
 
 if ($user && password_verify($password, $user['password'])) {
-    $data = ['id' => (int)$user['id'], 'username' => $user['username'], 'nama' => $user['nama'], 'role' => $user['role']];
+    $token = generate_token($user['id']);
+    $data = [
+        'id' => (int)$user['id'],
+        'username' => $user['username'],
+        'nama' => $user['nama'],
+        'role' => $user['role'],
+        'token' => $token
+    ];
 
     if ($user['role'] === 'dosen') {
         $stmt = $pdo->prepare("SELECT d.id as dosen_id, d.nip, d.prodi, k.id as kelas_id, k.nama_kelas FROM dosen d LEFT JOIN kelas k ON k.dosen_id = d.id WHERE d.user_id = ?");

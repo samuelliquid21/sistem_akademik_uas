@@ -1,10 +1,9 @@
 <?php
 require_once 'config.php';
 
-$role = $_GET['role'] ?? '';
-$user_id = (int)($_GET['user_id'] ?? 0);
-$dosen_id = (int)($_GET['dosen_id'] ?? 0);
-$kelas_id = (int)($_GET['kelas_id'] ?? 0);
+$session = validate_token();
+$role = $session['role'];
+$user_id = (int)$session['user_id'];
 
 try {
     if ($role === 'admin') {
@@ -19,7 +18,12 @@ try {
         $recent = $stmt->fetchAll();
 
         json_response(['stats' => ['total_mahasiswa'=>$total_mhs,'total_dosen'=>$total_dosen,'total_kelas'=>$total_kelas,'total_deteksi'=>$total_deteksi,'total_berat'=>$berat,'total_aman'=>$aman], 'recent' => $recent]);
-    } elseif ($role === 'dosen' && $dosen_id) {
+    } elseif ($role === 'dosen') {
+        $stmt = $pdo->prepare("SELECT d.id as dosen_id FROM dosen d WHERE d.user_id=?");
+        $stmt->execute([$user_id]);
+        $dosenRow = $stmt->fetch();
+        $dosen_id = $dosenRow ? (int)$dosenRow['dosen_id'] : 0;
+
         $stmt = $pdo->prepare("SELECT COUNT(*) as t FROM mahasiswa WHERE kelas_id=(SELECT kelas_id FROM dosen d JOIN kelas k ON k.dosen_id=d.id WHERE d.id=?)");
         $stmt->execute([$dosen_id]); $total_mhs = (int)$stmt->fetch()['t'];
 
@@ -36,13 +40,13 @@ try {
         $stmt->execute([$dosen_id]); $recent = $stmt->fetchAll();
 
         json_response(['stats' => ['total_mahasiswa'=>$total_mhs,'total_deteksi'=>$total_deteksi,'total_berat'=>$berat,'total_aman'=>$aman], 'recent' => $recent]);
-    } elseif ($role === 'mahasiswa' && $user_id) {
+    } elseif ($role === 'mahasiswa') {
         $stmt = $pdo->prepare("SELECT COUNT(*) as t FROM deteksi WHERE user_id=?"); $stmt->execute([$user_id]); $total = (int)$stmt->fetch()['t'];
         $stmt = $pdo->prepare("SELECT COUNT(*) as t FROM deteksi WHERE user_id=? AND pelanggaran_berat=1"); $stmt->execute([$user_id]); $berat = (int)$stmt->fetch()['t'];
         $stmt = $pdo->prepare("SELECT * FROM deteksi WHERE user_id=? ORDER BY created_at DESC"); $stmt->execute([$user_id]); $recent = $stmt->fetchAll();
         json_response(['stats' => ['total_deteksi'=>$total,'total_berat'=>$berat], 'recent' => $recent]);
     } else {
-        json_response(['error' => 'Invalid params'], 400);
+        json_response(['error' => 'Invalid role'], 400);
     }
 } catch (Exception $e) {
     json_response(['error' => $e->getMessage()], 500);
