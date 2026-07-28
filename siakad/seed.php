@@ -20,10 +20,9 @@ if ($mysqlUrl) {
 }
 
 try {
-    $pdo = new PDO("mysql:host=$host;port=$port;charset=utf8mb4", $user, $pass);
+    // Connect directly to the database (Railway MySQL creates the database automatically)
+    $pdo = new PDO("mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4", $user, $pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->exec("CREATE DATABASE IF NOT EXISTS `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-    $pdo->exec("USE `$db`");
 
     // Prevent re-execution on every deploy
     $check = $pdo->query("SELECT COUNT(*) as c FROM users");
