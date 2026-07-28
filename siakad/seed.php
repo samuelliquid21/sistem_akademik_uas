@@ -3,16 +3,23 @@
 //   php siakad/seed.php
 // This will create tables and seed data.
 
-$host = getenv('DB_HOST') ?: 'localhost';
-$user = getenv('DB_USER') ?: 'root';
-$pass = getenv('DB_PASS') ?: 'sardenggan123';
-$db   = getenv('DB_NAME') ?: 'db_siakad';
+$host = getenv('DB_HOST') ?: getenv('MYSQL_HOST') ?: getenv('MARIADB_HOST') ?: 'localhost';
+$user = getenv('DB_USER') ?: getenv('MYSQL_USER') ?: getenv('MARIADB_USER') ?: 'root';
+$pass = getenv('DB_PASS') ?: getenv('MYSQL_PASSWORD') ?: getenv('MARIADB_PASSWORD') ?: 'sardenggan123';
+$db   = getenv('DB_NAME') ?: getenv('MYSQL_DATABASE') ?: getenv('MARIADB_DATABASE') ?: 'db_siakad';
 
 try {
     $pdo = new PDO("mysql:host=$host;charset=utf8mb4", $user, $pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->exec("CREATE DATABASE IF NOT EXISTS `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdo->exec("USE `$db`");
+
+    // Prevent re-execution on every deploy
+    $check = $pdo->query("SELECT COUNT(*) as c FROM users");
+    if ($check->fetch()['c'] > 0) {
+        echo "Database already seeded. Skipping.\n";
+        exit(0);
+    }
 
     // Tables
     $pdo->exec("
