@@ -1,5 +1,8 @@
 #!/bin/bash
-# Railway startup script
-# DB_HOST, DB_USER, DB_PASS, DB_NAME, TOKEN_SECRET harus di-set dari Railway dashboard
+set -e
 
+# Auto-seed database on first run
+php siakad/seed.php
+
+# Start PHP built-in server
 php -S 0.0.0.0:${PORT:-8080} -t siakad/
