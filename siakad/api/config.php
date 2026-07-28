@@ -19,15 +19,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $envFile = __DIR__ . '/../.env';
 $env = (file_exists($envFile) && is_readable($envFile))
   ? parse_ini_file($envFile) : [];
-// Environment variables override .env (used by Railway & hosting)
-$host = getenv('DB_HOST') ?: getenv('MYSQL_HOST') ?: getenv('MARIADB_HOST') ?: ($env['DB_HOST'] ?? 'localhost');
-$user = getenv('DB_USER') ?: getenv('MYSQL_USER') ?: getenv('MARIADB_USER') ?: ($env['DB_USER'] ?? 'root');
-$pass = getenv('DB_PASS') ?: getenv('MYSQL_PASSWORD') ?: getenv('MARIADB_PASSWORD') ?: ($env['DB_PASS'] ?? 'sardenggan123');
-$db   = getenv('DB_NAME') ?: getenv('MYSQL_DATABASE') ?: getenv('MARIADB_DATABASE') ?: ($env['DB_NAME'] ?? 'db_siakad');
+
+// Railway MySQL injects MYSQL_URL: mysql://user:password@host:port/database
+$mysqlUrl = getenv('MYSQL_URL') ?: getenv('MARIADB_URL') ?: '';
+if ($mysqlUrl) {
+    $parts = parse_url($mysqlUrl);
+    $host = $parts['host'] ?? 'localhost';
+    $user = urldecode($parts['user'] ?? 'root');
+    $pass = urldecode($parts['pass'] ?? '');
+    $db   = ltrim($parts['path'] ?? '', '/');
+    $port = $parts['port'] ?? 3306;
+} else {
+    $host = getenv('DB_HOST') ?: getenv('MYSQL_HOST') ?: getenv('MARIADB_HOST') ?: ($env['DB_HOST'] ?? 'localhost');
+    $user = getenv('DB_USER') ?: getenv('MYSQL_USER') ?: getenv('MARIADB_USER') ?: ($env['DB_USER'] ?? 'root');
+    $pass = getenv('DB_PASS') ?: getenv('MYSQL_PASSWORD') ?: getenv('MARIADB_PASSWORD') ?: ($env['DB_PASS'] ?? 'sardenggan123');
+    $db   = getenv('DB_NAME') ?: getenv('MYSQL_DATABASE') ?: getenv('MARIADB_DATABASE') ?: ($env['DB_NAME'] ?? 'db_siakad');
+    $port = 3306;
+}
 $tokenSecret = getenv('TOKEN_SECRET') ?: ($env['TOKEN_SECRET'] ?? 'siakad_secret_key_change_me');
 
 try {
-    $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass);
+    $pdo = new PDO("mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4", $user, $pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
