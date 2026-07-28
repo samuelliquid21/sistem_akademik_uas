@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["php83", "php83Extensions.pdo", "php83Extensions.pdo_mysql", "php83Extensions.mbstring"]
+
+[phases.install]
+cmds = ["echo 'SIAKAD - no build step required'"]
+
+[start]
+cmd = "./start.sh"

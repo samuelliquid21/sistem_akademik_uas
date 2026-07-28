@@ -1,0 +1,8 @@
+{
+  "name": "siakad/deteksi-akademik",
+  "description": "SIAKAD - Sistem Deteksi Pelanggaran Akademik",
+  "type": "project",
+  "require": {
+    "php": ">=8.0"
+  }
+}
