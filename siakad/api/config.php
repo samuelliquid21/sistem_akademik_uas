@@ -19,11 +19,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $envFile = __DIR__ . '/../.env';
 $env = (file_exists($envFile) && is_readable($envFile))
   ? parse_ini_file($envFile) : [];
-// Environment variables override .env (used by Railway)
-$host = getenv('DB_HOST') ?: ($env['DB_HOST'] ?? 'localhost');
-$user = getenv('DB_USER') ?: ($env['DB_USER'] ?? 'root');
-$pass = getenv('DB_PASS') ?: ($env['DB_PASS'] ?? 'sardenggan123');
-$db   = getenv('DB_NAME') ?: ($env['DB_NAME'] ?? 'db_siakad');
+// Environment variables override .env (used by Railway & hosting)
+$host = getenv('DB_HOST') ?: getenv('MYSQL_HOST') ?: getenv('MARIADB_HOST') ?: ($env['DB_HOST'] ?? 'localhost');
+$user = getenv('DB_USER') ?: getenv('MYSQL_USER') ?: getenv('MARIADB_USER') ?: ($env['DB_USER'] ?? 'root');
+$pass = getenv('DB_PASS') ?: getenv('MYSQL_PASSWORD') ?: getenv('MARIADB_PASSWORD') ?: ($env['DB_PASS'] ?? 'sardenggan123');
+$db   = getenv('DB_NAME') ?: getenv('MYSQL_DATABASE') ?: getenv('MARIADB_DATABASE') ?: ($env['DB_NAME'] ?? 'db_siakad');
 $tokenSecret = getenv('TOKEN_SECRET') ?: ($env['TOKEN_SECRET'] ?? 'siakad_secret_key_change_me');
 
 try {
