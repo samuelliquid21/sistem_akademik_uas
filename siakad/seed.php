@@ -24,13 +24,6 @@ try {
     $pdo = new PDO("mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4", $user, $pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    // Prevent re-execution on every deploy
-    $check = $pdo->query("SELECT COUNT(*) as c FROM users");
-    if ($check->fetch()['c'] > 0) {
-        echo "Database already seeded. Skipping.\n";
-        exit(0);
-    }
-
     // Tables
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS users (
@@ -126,6 +119,13 @@ try {
         ) ENGINE=InnoDB;
     ");
     echo "✅ Tables created\n";
+
+    // Check if already seeded (now that tables exist, query won't fail)
+    $check = $pdo->query("SELECT COUNT(*) as c FROM users");
+    if ($check->fetch()['c'] > 0) {
+        echo "Database already seeded. Skipping.\n";
+        exit(0);
+    }
 
     // Seed users
     $pw = password_hash('admin', PASSWORD_DEFAULT);
